@@ -1,0 +1,41 @@
+scenario:
+  name: "Simple Test Scenario"
+  rules:
+    # When cyber sim detects attack, alert VR sim
+    - when:
+        event_type: "attack.detected"
+        from: "cyber_sim"
+      then:
+        - send_to: "vr_sim"
+          command: "show_alert"
+          params:
+            message: "Cyber attack detected!"
+            severity: 8
+    
+    # When sensor triggers, notify both cyber and VR
+    - when:
+        event_type: "sensor.triggered"
+        from: "sensor_sim"
+      then:
+        - send_to: "cyber_sim"
+          command: "log_event"
+          params:
+            event: "sensor_triggered"
+        - send_to: "vr_sim"
+          command: "update_status"
+          params:
+            status: "sensor_active"
+    
+    # Generic rule: any simulation can trigger a broadcast
+    - when:
+        event_type: "emergency.activated"
+      then:
+        - send_to: "vr_sim"
+          command: "emergency_mode"
+          params:
+            active: true
+        - send_to: "cyber_sim"
+          command: "emergency_mode"
+          params:
+            active: true
+
