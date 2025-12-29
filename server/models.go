@@ -37,6 +37,11 @@ type Message struct {
 	Status    string                 `json:"status,omitempty"`
 }
 
+// ScenarioFile represents the root YAML structure
+type ScenarioFile struct {
+	Scenario Scenario `yaml:"scenario"`
+}
+
 // Scenario represents the loaded YAML scenario
 type Scenario struct {
 	Name  string `yaml:"name"`

@@ -25,13 +25,13 @@ func (sm *ScenarioManager) LoadScenario(filepath string) error {
 		return fmt.Errorf("failed to read scenario file: %w", err)
 	}
 
-	var scenario Scenario
-	if err := yaml.Unmarshal(data, &scenario); err != nil {
+	var scenarioFile ScenarioFile
+	if err := yaml.Unmarshal(data, &scenarioFile); err != nil {
 		return fmt.Errorf("failed to parse YAML: %w", err)
 	}
 
-	sm.scenario = &scenario
-	log.Printf("Loaded scenario: %s with %d rules", scenario.Name, len(scenario.Rules))
+	sm.scenario = &scenarioFile.Scenario
+	log.Printf("Loaded scenario: %s with %d rules", scenarioFile.Scenario.Name, len(scenarioFile.Scenario.Rules))
 	return nil
 }
 
