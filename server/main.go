@@ -18,6 +18,7 @@ func main() {
 	// Initialize components
 	registry := NewRegistry()
 	scenarioManager := NewScenarioManager()
+	sagaManager := NewSagaManager(registry)
 
 	// Load scenario
 	if err := scenarioManager.LoadScenario(*scenarioFile); err != nil {
@@ -35,7 +36,7 @@ func main() {
 	})
 
 	// WebSocket endpoint
-	r.Get("/ws", HandleWebSocket(registry, scenarioManager))
+	r.Get("/ws", HandleWebSocket(registry, scenarioManager, sagaManager))
 
 	// Start server
 	log.Printf("Server starting on port %s", *port)

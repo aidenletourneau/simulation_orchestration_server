@@ -35,6 +35,9 @@ type Message struct {
 	Command   string                 `json:"command,omitempty"`
 	Params    map[string]interface{} `json:"params,omitempty"`
 	Status    string                 `json:"status,omitempty"`
+	// Saga-related fields for event-driven choreography
+	SagaID   string `json:"saga_id,omitempty"`   // Saga identifier
+	StepID   *int   `json:"step_id,omitempty"`   // Step identifier (pointer to allow nil)
 }
 
 // ScenarioFile represents the root YAML structure
@@ -62,8 +65,10 @@ type WhenCondition struct {
 
 // Action defines what to do when rule fires
 type Action struct {
-	SendTo  string                 `yaml:"send_to"`
-	Command string                 `yaml:"command"`
-	Params  map[string]interface{} `yaml:"params"`
+	SendTo           string                 `yaml:"send_to"`
+	Command          string                 `yaml:"command"`
+	Params           map[string]interface{} `yaml:"params"`
+	CompensateCommand string               `yaml:"compensate_command,omitempty"` // Rollback command
+	CompensateParams  map[string]interface{} `yaml:"compensate_params,omitempty"` // Compensation parameters
 }
 
