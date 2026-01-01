@@ -80,29 +80,177 @@ type Saga struct {
 	Steps       []*SagaStep // Ordered list of steps to execute
 	CreatedAt   time.Time   // When Saga was created
 	mu          sync.RWMutex // Protects Saga state
+	lockedSims  []string     // List of simulation IDs that are locked by this saga
 }
 
 // SagaManager manages the lifecycle of all Sagas
 // It handles Saga creation, step progression, and compensation in a thread-safe manner
+// It also prevents concurrent Sagas from targeting the same simulation
 type SagaManager struct {
 	sagas map[string]*Saga // Map of SagaID -> Saga
 	mu    sync.RWMutex     // Protects sagas map
 	registry *Registry      // Reference to simulation registry for sending commands
+	
+	// Simulation-level locking to prevent concurrent Sagas
+	simulationLocks map[string]*sync.Mutex // Map of simID -> mutex
+	activeSagas     map[string][]string     // Map of simID -> []sagaIDs (for conflict tracking)
+	lockMu          sync.Mutex              // Protects simulationLocks and activeSagas
 }
 
 // NewSagaManager creates a new SagaManager
 func NewSagaManager(registry *Registry) *SagaManager {
 	return &SagaManager{
-		sagas:   make(map[string]*Saga),
-		registry: registry,
+		sagas:           make(map[string]*Saga),
+		registry:        registry,
+		simulationLocks: make(map[string]*sync.Mutex),
+		activeSagas:     make(map[string][]string),
+	}
+}
+
+// acquireSimulationLock acquires a lock for a simulation, preventing concurrent Sagas
+// Returns the lock and true if acquired, false if simulation is already locked by another Saga
+func (sm *SagaManager) acquireSimulationLock(simID string) (*sync.Mutex, bool) {
+	sm.lockMu.Lock()
+	defer sm.lockMu.Unlock()
+
+	// Initialize lock if it doesn't exist
+	if sm.simulationLocks[simID] == nil {
+		sm.simulationLocks[simID] = &sync.Mutex{}
+	}
+
+	lock := sm.simulationLocks[simID]
+	
+	// Try to acquire lock (non-blocking check)
+	acquired := lock.TryLock()
+	return lock, acquired
+}
+
+// releaseSimulationLock releases a lock for a simulation
+func (sm *SagaManager) releaseSimulationLock(simID string, lock *sync.Mutex) {
+	lock.Unlock()
+	
+	sm.lockMu.Lock()
+	defer sm.lockMu.Unlock()
+	
+	// Remove from active sagas tracking
+	if sagas, exists := sm.activeSagas[simID]; exists {
+		// Remove this saga from the list (cleanup happens in cleanupSimulationLocks)
+		_ = sagas // Keep for now, cleanup happens when saga completes
+	}
+}
+
+// trackActiveSimulation records that a saga is using a simulation
+func (sm *SagaManager) trackActiveSimulation(simID string, sagaID string) {
+	sm.lockMu.Lock()
+	defer sm.lockMu.Unlock()
+	
+	if sm.activeSagas[simID] == nil {
+		sm.activeSagas[simID] = make([]string, 0)
+	}
+	sm.activeSagas[simID] = append(sm.activeSagas[simID], sagaID)
+	log.Printf("Saga %s now active on simulation %s", sagaID, simID)
+}
+
+// untrackActiveSimulation removes a saga from simulation tracking
+func (sm *SagaManager) untrackActiveSimulation(simID string, sagaID string) {
+	sm.lockMu.Lock()
+	defer sm.lockMu.Unlock()
+	
+	if sagas, exists := sm.activeSagas[simID]; exists {
+		for i, id := range sagas {
+			if id == sagaID {
+				// Remove from slice
+				sm.activeSagas[simID] = append(sagas[:i], sagas[i+1:]...)
+				log.Printf("Saga %s no longer active on simulation %s", sagaID, simID)
+				break
+			}
+		}
+		// Clean up empty entries
+		if len(sm.activeSagas[simID]) == 0 {
+			delete(sm.activeSagas, simID)
+		}
+	}
+}
+
+// CheckConflict checks if a simulation is currently involved in any active Sagas
+// Returns the list of conflicting saga IDs and whether a conflict exists
+func (sm *SagaManager) CheckConflict(simID string) ([]string, bool) {
+	sm.lockMu.Lock()
+	defer sm.lockMu.Unlock()
+	
+	activeSagas, exists := sm.activeSagas[simID]
+	if !exists || len(activeSagas) == 0 {
+		return nil, false
+	}
+	
+	// Filter to only in-progress sagas
+	conflictingSagas := make([]string, 0)
+	sm.mu.RLock()
+	for _, sagaID := range activeSagas {
+		if saga, exists := sm.sagas[sagaID]; exists {
+			if saga.Status == SagaStatusInProgress || saga.Status == SagaStatusPending {
+				conflictingSagas = append(conflictingSagas, sagaID)
+			}
+		}
+	}
+	sm.mu.RUnlock()
+	
+	return conflictingSagas, len(conflictingSagas) > 0
+}
+
+// cleanupSimulationLocks removes tracking for all simulations used by a saga
+func (sm *SagaManager) cleanupSimulationLocks(saga *Saga) {
+	// Get unique simulations from saga steps
+	sims := make(map[string]bool)
+	for _, step := range saga.Steps {
+		sims[step.TargetSimulation] = true
+	}
+	
+	// Untrack this saga from all simulations
+	for simID := range sims {
+		sm.untrackActiveSimulation(simID, saga.SagaID)
 	}
 }
 
 // CreateSaga creates a new Saga from a list of actions (from a scenario rule)
 // The Saga is created in Pending status and the first step is dispatched immediately
+// This method now includes conflict detection and simulation-level locking
 func (sm *SagaManager) CreateSaga(actions []Action) (*Saga, error) {
 	if len(actions) == 0 {
 		return nil, fmt.Errorf("cannot create saga with no actions")
+	}
+
+	// Check for conflicts before creating the saga
+	conflictingSims := make(map[string][]string)
+	for _, action := range actions {
+		if conflicts, hasConflict := sm.CheckConflict(action.SendTo); hasConflict {
+			conflictingSims[action.SendTo] = conflicts
+		}
+	}
+	
+	if len(conflictingSims) > 0 {
+		log.Printf("Conflict detected: cannot create saga - simulations are busy")
+		for simID, sagaIDs := range conflictingSims {
+			log.Printf("  Simulation %s is busy in sagas: %v", simID, sagaIDs)
+		}
+		return nil, fmt.Errorf("conflict detected: target simulations are busy in other sagas")
+	}
+
+	// Acquire locks for all target simulations
+	locks := make(map[string]*sync.Mutex)
+	lockedSims := make([]string, 0)
+	
+	for _, action := range actions {
+		lock, acquired := sm.acquireSimulationLock(action.SendTo)
+		if !acquired {
+			// Release all previously acquired locks
+			for simID, l := range locks {
+				sm.releaseSimulationLock(simID, l)
+			}
+			return nil, fmt.Errorf("failed to acquire lock for simulation %s (may be busy)", action.SendTo)
+		}
+		locks[action.SendTo] = lock
+		lockedSims = append(lockedSims, action.SendTo)
 	}
 
 	// Generate unique Saga ID
@@ -129,6 +277,7 @@ func (sm *SagaManager) CreateSaga(actions []Action) (*Saga, error) {
 		Status:      SagaStatusPending,
 		Steps:       steps,
 		CreatedAt:   time.Now(),
+		lockedSims:  lockedSims, // Store which simulations are locked
 	}
 
 	// Store Saga
@@ -136,17 +285,30 @@ func (sm *SagaManager) CreateSaga(actions []Action) (*Saga, error) {
 	sm.sagas[sagaID] = saga
 	sm.mu.Unlock()
 
-	log.Printf("Created Saga %s with %d steps", sagaID, len(steps))
+	// Track this saga for all target simulations
+	for _, simID := range lockedSims {
+		sm.trackActiveSimulation(simID, sagaID)
+	}
+
+	log.Printf("Created Saga %s with %d steps (locks acquired for %d simulations)", sagaID, len(steps), len(lockedSims))
 
 	// Dispatch first step immediately
 	if err := sm.dispatchStep(saga, 0); err != nil {
 		log.Printf("Failed to dispatch first step of Saga %s: %v", sagaID, err)
+		// Release locks and cleanup
+		for simID, lock := range locks {
+			sm.releaseSimulationLock(simID, lock)
+		}
+		sm.cleanupSimulationLocks(saga)
 		// Mark Saga as failed
 		saga.mu.Lock()
 		saga.Status = SagaStatusFailed
 		saga.mu.Unlock()
 		return saga, err
 	}
+
+	// Note: Locks will be released when the saga completes or fails
+	// This is handled in HandleStepCompletion and HandleStepFailure
 
 	return saga, nil
 }
@@ -233,6 +395,11 @@ func (sm *SagaManager) HandleStepCompletion(sagaID string, stepID int) error {
 		// All steps completed successfully
 		saga.Status = SagaStatusCompleted
 		log.Printf("Saga %s: All steps completed successfully", sagaID)
+		
+		// Release all simulation locks and cleanup tracking
+		saga.mu.Unlock()
+		sm.cleanupSimulationLocks(saga)
+		sm.releaseAllLocksForSaga(saga)
 		return nil
 	}
 
@@ -287,6 +454,10 @@ func (sm *SagaManager) HandleStepFailure(sagaID string, stepID int) error {
 
 	// Trigger compensation (rollback all completed steps in reverse order)
 	sm.triggerCompensation(saga, stepID-1) // Compensate up to the step before the failed one
+
+	// Release all simulation locks and cleanup tracking after compensation
+	sm.cleanupSimulationLocks(saga)
+	sm.releaseAllLocksForSaga(saga)
 
 	return nil
 }
@@ -357,6 +528,19 @@ func (sm *SagaManager) triggerCompensation(saga *Saga, lastStepToCompensate int)
 	saga.mu.Unlock()
 
 	log.Printf("Saga %s: Compensation completed", saga.SagaID)
+}
+
+// releaseAllLocksForSaga releases all simulation locks held by a saga
+func (sm *SagaManager) releaseAllLocksForSaga(saga *Saga) {
+	// Use the stored list of locked simulations from the saga
+	sm.lockMu.Lock()
+	for _, simID := range saga.lockedSims {
+		if lock, exists := sm.simulationLocks[simID]; exists {
+			lock.Unlock()
+			log.Printf("Released lock for simulation %s (saga %s)", simID, saga.SagaID)
+		}
+	}
+	sm.lockMu.Unlock()
 }
 
 // GetSaga retrieves a Saga by ID (for debugging/monitoring)

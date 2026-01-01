@@ -15,7 +15,7 @@ var upgrader = websocket.Upgrader{
 }
 
 // HandleWebSocket handles WebSocket connections
-func HandleWebSocket(registry *Registry, scenarioManager *ScenarioManager, sagaManager *SagaManager) http.HandlerFunc {
+func HandleWebSocket(registry *Registry, scenarioManager *ScenarioManager, sagaManager *SagaManager, eventQueue *EventQueue) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		conn, err := upgrader.Upgrade(w, r, nil)
 		if err != nil {
@@ -69,10 +69,21 @@ func HandleWebSocket(registry *Registry, scenarioManager *ScenarioManager, sagaM
 			// Handle different message types
 			switch msg.Type {
 			case "event":
-				handleEvent(simID, msg, registry, scenarioManager, sagaManager)
+				// Enqueue event for sequential processing to prevent race conditions
+				if !eventQueue.Enqueue(simID, msg) {
+					log.Printf("Failed to enqueue event from %s: %s", simID, msg.EventType)
+					// Optionally send error response to simulation
+					errorResponse := Message{
+						Type:   "error",
+						Status: "queue_full",
+					}
+					conn.WriteJSON(errorResponse)
+				}
 			case "step.completed":
+				// Step completion events don't need queuing - they're part of existing sagas
 				handleStepCompleted(simID, msg, sagaManager)
 			case "step.failed":
+				// Step failure events don't need queuing - they're part of existing sagas
 				handleStepFailed(simID, msg, sagaManager)
 			default:
 				log.Printf("Unknown message type: %s", msg.Type)
