@@ -10,17 +10,35 @@ A simple server that routes events between simulations based on YAML configurati
 go mod tidy
 ```
 
-### 2. Run the Server
+### 2. Configure Environment Variables (Optional)
 
+Copy the example environment file and customize it:
+
+```bash
+cp .env.example .env
+```
+
+Edit `.env` with your settings. See [Environment Variables](#environment-variables) section below for details.
+
+### 3. Run the Server
+
+**Using environment variables:**
+```bash
+go run .
+```
+
+**Using command line flags:**
 ```bash
 go run . -scenario scenarios/example.yaml -port 3000
 ```
 
-Or build first:
+**Or build first:**
 ```bash
 go build -o simulation_server.exe .
-./simulation_server.exe -scenario scenarios/example.yaml -port 3000
+./simulation_server.exe
 ```
+
+The server will automatically load environment variables from `.env` if present, or use defaults.
 
 ### 3. Test It
 
@@ -71,6 +89,31 @@ scenario:
 ```
 
 See `scenarios/example.yaml` for more examples.
+
+## Environment Variables
+
+The server supports configuration via environment variables or a `.env` file. Create a `.env` file in the `server/` directory based on `.env.example`.
+
+| Variable | Description | Default |
+|----------|-------------|---------|
+| `PORT` | Server port | `3000` |
+| `DATABASE_URL` | Database connection string. For SQLite: file path (e.g., `scenarios.db`). For PostgreSQL: connection string (e.g., `postgres://user:pass@host:5432/dbname?sslmode=require`) | `scenarios.db` |
+| `SCENARIO_FILE` | Path to initial scenario YAML file to load on startup | `scenarios/example.yaml` |
+
+**Example `.env` file:**
+```env
+PORT=3000
+DATABASE_URL=scenarios.db
+SCENARIO_FILE=scenarios/example.yaml
+```
+
+**For production (PostgreSQL):**
+```env
+PORT=3000
+DATABASE_URL=postgres://username:password@hostname:5432/dbname?sslmode=require
+```
+
+See `DATABASE_SETUP.md` for detailed database configuration instructions.
 
 ## Testing
 
