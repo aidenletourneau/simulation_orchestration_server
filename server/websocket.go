@@ -1,7 +1,6 @@
 package main
 
 import (
-	"log"
 	"net/http"
 
 	"github.com/gorilla/websocket"
@@ -15,38 +14,38 @@ var upgrader = websocket.Upgrader{
 }
 
 // HandleWebSocket handles WebSocket connections
-func HandleWebSocket(registry *Registry, scenarioManager *ScenarioManager, sagaManager *SagaManager, eventQueue *EventQueue) http.HandlerFunc {
+func HandleWebSocket(registry *Registry, scenarioManager *ScenarioManager, sagaManager *SagaManager, eventQueue *EventQueue, logStore *LogStore) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		conn, err := upgrader.Upgrade(w, r, nil)
 		if err != nil {
-			log.Printf("WebSocket upgrade failed: %v", err)
+			logStore.LogAndStore("error", "WebSocket upgrade failed: %v", err)
 			return
 		}
 		defer conn.Close()
 
-		log.Println("New WebSocket connection established")
+		logStore.LogAndStore("info", "New WebSocket connection established")
 
 		// Wait for registration message
 		var msg Message
 		if err := conn.ReadJSON(&msg); err != nil {
-			log.Printf("Failed to read registration: %v", err)
+			logStore.LogAndStore("error", "Failed to read registration: %v", err)
 			return
 		}
 
 		if msg.Type != "register" {
-			log.Printf("Expected registration message, got: %s", msg.Type)
+			logStore.LogAndStore("error", "Expected registration message, got: %s", msg.Type)
 			return
 		}
 
 		// Register simulation
 		simID := msg.ID
 		if simID == "" {
-			log.Println("Registration missing ID")
+			logStore.LogAndStore("error", "Registration missing ID")
 			return
 		}
 
 		registry.Register(simID, msg.Name, conn)
-		log.Printf("Simulation registered: %s (%s)", simID, msg.Name)
+		logStore.LogAndStore("info", "Simulation registered: %s (%s)", simID, msg.Name)
 
 		// Send registration confirmation
 		response := Message{
@@ -54,7 +53,7 @@ func HandleWebSocket(registry *Registry, scenarioManager *ScenarioManager, sagaM
 			Status: "ok",
 		}
 		if err := conn.WriteJSON(response); err != nil {
-			log.Printf("Failed to send registration confirmation: %v", err)
+			logStore.LogAndStore("error", "Failed to send registration confirmation: %v", err)
 			return
 		}
 
@@ -62,7 +61,7 @@ func HandleWebSocket(registry *Registry, scenarioManager *ScenarioManager, sagaM
 		for {
 			var msg Message
 			if err := conn.ReadJSON(&msg); err != nil {
-				log.Printf("Error reading message from %s: %v", simID, err)
+				logStore.LogAndStore("error", "Error reading message from %s: %v", simID, err)
 				break
 			}
 
@@ -71,7 +70,7 @@ func HandleWebSocket(registry *Registry, scenarioManager *ScenarioManager, sagaM
 			case "event":
 				// Enqueue event for sequential processing to prevent race conditions
 				if !eventQueue.Enqueue(simID, msg) {
-					log.Printf("Failed to enqueue event from %s: %s", simID, msg.EventType)
+					logStore.LogAndStore("error", "Failed to enqueue event from %s: %s", simID, msg.EventType)
 					// Optionally send error response to simulation
 					errorResponse := Message{
 						Type:   "error",
@@ -81,24 +80,24 @@ func HandleWebSocket(registry *Registry, scenarioManager *ScenarioManager, sagaM
 				}
 			case "step.completed":
 				// Step completion events don't need queuing - they're part of existing sagas
-				handleStepCompleted(simID, msg, sagaManager)
+				handleStepCompleted(simID, msg, sagaManager, logStore)
 			case "step.failed":
 				// Step failure events don't need queuing - they're part of existing sagas
-				handleStepFailed(simID, msg, sagaManager)
+				handleStepFailed(simID, msg, sagaManager, logStore)
 			default:
-				log.Printf("Unknown message type: %s", msg.Type)
+				logStore.LogAndStore("warning", "Unknown message type: %s", msg.Type)
 			}
 		}
 
 		// Cleanup on disconnect
 		registry.Unregister(simID)
-		log.Printf("Simulation disconnected: %s", simID)
+		logStore.LogAndStore("info", "Simulation disconnected: %s", simID)
 	}
 }
 
 // handleEvent processes incoming events and creates Sagas when rules match
 // This is the entry point for Saga-based transaction coordination
-func handleEvent(sourceID string, msg Message, registry *Registry, scenarioManager *ScenarioManager, sagaManager *SagaManager) {
+func handleEvent(sourceID string, msg Message, registry *Registry, scenarioManager *ScenarioManager, sagaManager *SagaManager, logStore *LogStore) {
 	// Create event
 	event := Event{
 		Type:      msg.Type,
@@ -107,13 +106,13 @@ func handleEvent(sourceID string, msg Message, registry *Registry, scenarioManag
 		Payload:   msg.Payload,
 	}
 
-	log.Printf("Event received from %s: %s", sourceID, msg.EventType)
+	logStore.LogAndStore("info", "Event received from %s: %s", sourceID, msg.EventType)
 
 	// Process event through scenario manager to get matching actions
 	actions := scenarioManager.ProcessEvent(event)
 
 	if len(actions) == 0 {
-		log.Printf("No matching rules for event: %s", msg.EventType)
+		logStore.LogAndStore("info", "No matching rules for event: %s", msg.EventType)
 		return
 	}
 
@@ -121,54 +120,53 @@ func handleEvent(sourceID string, msg Message, registry *Registry, scenarioManag
 	// The Saga ensures eventual consistency: either all steps complete or all are rolled back
 	saga, err := sagaManager.CreateSaga(actions)
 	if err != nil {
-		log.Printf("Failed to create Saga: %v", err)
+		logStore.LogAndStore("error", "Failed to create Saga: %v", err)
 		return
 	}
 
-	log.Printf("Saga %s created from event %s with %d steps", saga.SagaID, msg.EventType, len(actions))
+	logStore.LogAndStore("info", "Saga %s created from event %s with %d steps", saga.SagaID, msg.EventType, len(actions))
 	// Note: The first step is dispatched automatically by CreateSaga
 	// Subsequent steps will be dispatched when step.completed events are received
 }
 
 // handleStepCompleted processes step.completed events from simulations
 // This advances the Saga to the next step or marks it as completed
-func handleStepCompleted(simID string, msg Message, sagaManager *SagaManager) {
+func handleStepCompleted(simID string, msg Message, sagaManager *SagaManager, logStore *LogStore) {
 	if msg.SagaID == "" {
-		log.Printf("step.completed event missing saga_id from %s", simID)
+		logStore.LogAndStore("error", "step.completed event missing saga_id from %s", simID)
 		return
 	}
 
 	if msg.StepID == nil {
-		log.Printf("step.completed event missing step_id from %s", simID)
+		logStore.LogAndStore("error", "step.completed event missing step_id from %s", simID)
 		return
 	}
 
 	stepID := *msg.StepID
-	log.Printf("Step completion received from %s: Saga %s, Step %d", simID, msg.SagaID, stepID)
+	logStore.LogAndStore("info", "Step completion received from %s: Saga %s, Step %d", simID, msg.SagaID, stepID)
 
 	if err := sagaManager.HandleStepCompletion(msg.SagaID, stepID); err != nil {
-		log.Printf("Failed to handle step completion: %v", err)
+		logStore.LogAndStore("error", "Failed to handle step completion: %v", err)
 	}
 }
 
 // handleStepFailed processes step.failed events from simulations
 // This triggers compensation for all previously completed steps
-func handleStepFailed(simID string, msg Message, sagaManager *SagaManager) {
+func handleStepFailed(simID string, msg Message, sagaManager *SagaManager, logStore *LogStore) {
 	if msg.SagaID == "" {
-		log.Printf("step.failed event missing saga_id from %s", simID)
+		logStore.LogAndStore("error", "step.failed event missing saga_id from %s", simID)
 		return
 	}
 
 	if msg.StepID == nil {
-		log.Printf("step.failed event missing step_id from %s", simID)
+		logStore.LogAndStore("error", "step.failed event missing step_id from %s", simID)
 		return
 	}
 
 	stepID := *msg.StepID
-	log.Printf("Step failure received from %s: Saga %s, Step %d", simID, msg.SagaID, stepID)
+	logStore.LogAndStore("info", "Step failure received from %s: Saga %s, Step %d", simID, msg.SagaID, stepID)
 
 	if err := sagaManager.HandleStepFailure(msg.SagaID, stepID); err != nil {
-		log.Printf("Failed to handle step failure: %v", err)
+		logStore.LogAndStore("error", "Failed to handle step failure: %v", err)
 	}
 }
-

@@ -1,0 +1,144 @@
+body {
+  font-family: Arial, sans-serif;
+  max-width: 1200px;
+  margin: 20px auto;
+  padding: 20px;
+  background-color: #f5f5f5;
+}
+
+h1 {
+  color: #333;
+  margin-bottom: 20px;
+}
+
+h2 {
+  color: #555;
+  margin-top: 0;
+  margin-bottom: 15px;
+  font-size: 1.2em;
+}
+
+.section {
+  background: white;
+  border: 1px solid #ddd;
+  padding: 20px;
+  margin: 15px 0;
+  border-radius: 5px;
+  box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+}
+
+button {
+  padding: 8px 16px;
+  margin: 5px;
+  cursor: pointer;
+  background: #007bff;
+  color: white;
+  border: none;
+  border-radius: 3px;
+  font-size: 14px;
+}
+
+button:hover {
+  background: #0056b3;
+}
+
+input {
+  padding: 8px;
+  margin: 5px;
+  border: 1px solid #ddd;
+  border-radius: 3px;
+  font-size: 14px;
+}
+
+.simulations-list {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+  gap: 15px;
+  margin-top: 10px;
+}
+
+.simulation-item {
+  background: #f8f9fa;
+  border: 1px solid #dee2e6;
+  padding: 15px;
+  border-radius: 4px;
+}
+
+.sim-id {
+  margin-bottom: 8px;
+  font-family: monospace;
+  color: #495057;
+}
+
+.sim-name {
+  color: #212529;
+}
+
+.log-container {
+  background: #1e1e1e;
+  padding: 15px;
+  height: 500px;
+  overflow-y: auto;
+  font-family: 'Courier New', monospace;
+  font-size: 12px;
+  border: 1px solid #ddd;
+  border-radius: 4px;
+}
+
+.log-entry {
+  margin: 4px 0;
+  padding: 2px 0;
+  word-wrap: break-word;
+}
+
+.log-timestamp {
+  color: #888;
+  margin-right: 10px;
+}
+
+.log-level {
+  color: #aaa;
+  margin-right: 10px;
+  font-weight: bold;
+}
+
+.log-message {
+  color: #d4d4d4;
+}
+
+.log-error .log-level {
+  color: #f48771;
+}
+
+.log-error .log-message {
+  color: #f48771;
+}
+
+.log-warning .log-level {
+  color: #dcdcaa;
+}
+
+.log-warning .log-message {
+  color: #dcdcaa;
+}
+
+.log-info .log-level {
+  color: #4ec9b0;
+}
+
+.log-info .log-message {
+  color: #4ec9b0;
+}
+
+.log-default .log-level {
+  color: #569cd6;
+}
+
+.log-default .log-message {
+  color: #d4d4d4;
+}
+
+p {
+  color: #666;
+  font-style: italic;
+}

@@ -70,14 +70,14 @@ func (eq *EventQueue) Enqueue(sourceID string, msg Message) bool {
 
 // StartProcessor starts a goroutine that processes events from the queue sequentially
 // This ensures only one event is processed at a time, preventing race conditions
-func (eq *EventQueue) StartProcessor(registry *Registry, scenarioManager *ScenarioManager, sagaManager *SagaManager) {
+func (eq *EventQueue) StartProcessor(registry *Registry, scenarioManager *ScenarioManager, sagaManager *SagaManager, logStore *LogStore) {
 	go func() {
-		log.Println("Event queue processor started")
+		logStore.LogAndStore("info", "Event queue processor started")
 		for queuedEvent := range eq.events {
-			log.Printf("Processing queued event from %s: %s", queuedEvent.SourceID, queuedEvent.Message.EventType)
-			handleEvent(queuedEvent.SourceID, queuedEvent.Message, registry, scenarioManager, sagaManager)
+			logStore.LogAndStore("info", "Processing queued event from %s: %s", queuedEvent.SourceID, queuedEvent.Message.EventType)
+			handleEvent(queuedEvent.SourceID, queuedEvent.Message, registry, scenarioManager, sagaManager, logStore)
 		}
-		log.Println("Event queue processor stopped")
+		logStore.LogAndStore("info", "Event queue processor stopped")
 	}()
 }
 

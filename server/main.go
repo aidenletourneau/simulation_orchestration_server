@@ -19,18 +19,22 @@ func main() {
 	registry := NewRegistry()
 	scenarioManager := NewScenarioManager()
 	sagaManager := NewSagaManager(registry)
+	logStore := NewLogStore(10000) // Store up to 10000 log entries
 
 	// Create event queue for ordered event processing (prevents race conditions)
 	// Buffer size of 1000 should be sufficient for most use cases
 	eventQueue := NewEventQueue(1000)
 
 	// Start event queue processor (runs in background goroutine)
-	eventQueue.StartProcessor(registry, scenarioManager, sagaManager)
+	eventQueue.StartProcessor(registry, scenarioManager, sagaManager, logStore)
 
 	// Load scenario
 	if err := scenarioManager.LoadScenario(*scenarioFile); err != nil {
 		log.Fatalf("Failed to load scenario: %v", err)
 	}
+
+	logStore.LogAndStore("info", "Server starting on port %s", *port)
+	logStore.LogAndStore("info", "WebSocket endpoint: ws://localhost:%s/ws", *port)
 
 	// Setup router
 	r := chi.NewRouter()
@@ -43,11 +47,15 @@ func main() {
 	})
 
 	// WebSocket endpoint
-	r.Get("/ws", HandleWebSocket(registry, scenarioManager, sagaManager, eventQueue))
+	r.Get("/ws", HandleWebSocket(registry, scenarioManager, sagaManager, eventQueue, logStore))
+
+	// API endpoints
+	r.Route("/api", func(r chi.Router) {
+		r.Get("/simulations", HandleGetSimulations(registry))
+		r.Get("/logs", HandleGetLogs(logStore))
+	})
 
 	// Start server
-	log.Printf("Server starting on port %s", *port)
-	log.Printf("WebSocket endpoint: ws://localhost:%s/ws", *port)
 	if err := http.ListenAndServe(":"+*port, r); err != nil {
 		log.Fatalf("Server failed: %v", err)
 	}
