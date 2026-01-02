@@ -1,4 +1,4 @@
-package main
+package api
 
 import (
 	"encoding/json"
@@ -7,6 +7,10 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/aidenletourneau/simulation_orchestration_server/server/internal/logging"
+	"github.com/aidenletourneau/simulation_orchestration_server/server/internal/registry"
+	"github.com/aidenletourneau/simulation_orchestration_server/server/internal/scenario"
+	"github.com/aidenletourneau/simulation_orchestration_server/server/internal/store"
 	"github.com/go-chi/chi/v5"
 )
 
@@ -17,12 +21,12 @@ type SimulationResponse struct {
 }
 
 // HandleGetSimulations returns all connected simulations
-func HandleGetSimulations(registry *Registry) http.HandlerFunc {
+func HandleGetSimulations(reg *registry.Registry) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		w.Header().Set("Access-Control-Allow-Origin", "*")
 
-		simulations := registry.GetAll()
+		simulations := reg.GetAll()
 		response := make([]SimulationResponse, 0, len(simulations))
 		for id, sim := range simulations {
 			response = append(response, SimulationResponse{
@@ -39,7 +43,7 @@ func HandleGetSimulations(registry *Registry) http.HandlerFunc {
 }
 
 // HandleGetLogs returns all log entries
-func HandleGetLogs(logStore *LogStore) http.HandlerFunc {
+func HandleGetLogs(logStore *logging.LogStore) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		w.Header().Set("Access-Control-Allow-Origin", "*")
@@ -59,7 +63,7 @@ type ScenarioInfoResponse struct {
 }
 
 // HandleGetScenario returns information about the current scenario
-func HandleGetScenario(scenarioManager *ScenarioManager) http.HandlerFunc {
+func HandleGetScenario(scenarioManager *scenario.ScenarioManager) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		w.Header().Set("Access-Control-Allow-Origin", "*")
@@ -90,7 +94,7 @@ type StoredScenarioResponse struct {
 }
 
 // HandleUploadScenario handles YAML scenario file uploads and saves them to the database
-func HandleUploadScenario(scenarioManager *ScenarioManager, scenarioStore *ScenarioStore, logStore *LogStore) http.HandlerFunc {
+func HandleUploadScenario(scenarioManager *scenario.ScenarioManager, scenarioStore *store.ScenarioStore, logStore *logging.LogStore) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Access-Control-Allow-Origin", "*")
 		w.Header().Set("Access-Control-Allow-Methods", "POST, OPTIONS")
@@ -165,7 +169,7 @@ func HandleUploadScenario(scenarioManager *ScenarioManager, scenarioStore *Scena
 		response := StoredScenarioResponse{
 			ID:        storedScenario.ID,
 			Name:      storedScenario.Name,
-			CreatedAt: storedScenario.CreatedAt.Format("2006-01-02 15:04:05"),
+			CreatedAt:  storedScenario.CreatedAt.Format("2006-01-02 15:04:05"),
 		}
 
 		if err := json.NewEncoder(w).Encode(response); err != nil {
@@ -176,7 +180,7 @@ func HandleUploadScenario(scenarioManager *ScenarioManager, scenarioStore *Scena
 }
 
 // HandleGetScenarios returns all stored scenarios
-func HandleGetScenarios(scenarioStore *ScenarioStore) http.HandlerFunc {
+func HandleGetScenarios(scenarioStore *store.ScenarioStore) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		w.Header().Set("Access-Control-Allow-Origin", "*")
@@ -212,7 +216,7 @@ type ScenarioYAMLResponse struct {
 }
 
 // HandleGetScenarioYAML returns the full YAML content of a scenario
-func HandleGetScenarioYAML(scenarioStore *ScenarioStore) http.HandlerFunc {
+func HandleGetScenarioYAML(scenarioStore *store.ScenarioStore) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		w.Header().Set("Access-Control-Allow-Origin", "*")
@@ -245,7 +249,7 @@ func HandleGetScenarioYAML(scenarioStore *ScenarioStore) http.HandlerFunc {
 }
 
 // HandleActivateScenario loads and activates a scenario from the database
-func HandleActivateScenario(scenarioManager *ScenarioManager, scenarioStore *ScenarioStore, logStore *LogStore) http.HandlerFunc {
+func HandleActivateScenario(scenarioManager *scenario.ScenarioManager, scenarioStore *store.ScenarioStore, logStore *logging.LogStore) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Access-Control-Allow-Origin", "*")
 		w.Header().Set("Access-Control-Allow-Methods", "POST, OPTIONS")

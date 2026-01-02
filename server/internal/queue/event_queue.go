@@ -1,9 +1,11 @@
-package main
+package queue
 
 import (
 	"log"
 	"sync"
 	"time"
+
+	"github.com/aidenletourneau/simulation_orchestration_server/server/internal/models"
 )
 
 /*
@@ -22,7 +24,7 @@ The queue ensures:
 // QueuedEvent represents an event waiting to be processed
 type QueuedEvent struct {
 	SourceID  string
-	Message   Message
+	Message   models.Message
 	Timestamp time.Time
 }
 
@@ -43,7 +45,7 @@ func NewEventQueue(bufferSize int) *EventQueue {
 
 // Enqueue adds an event to the queue for processing
 // Returns false if the queue is closed
-func (eq *EventQueue) Enqueue(sourceID string, msg Message) bool {
+func (eq *EventQueue) Enqueue(sourceID string, msg models.Message) bool {
 	eq.mu.RLock()
 	defer eq.mu.RUnlock()
 
@@ -68,16 +70,16 @@ func (eq *EventQueue) Enqueue(sourceID string, msg Message) bool {
 	}
 }
 
+// ProcessorFunc is a function type for processing events
+type ProcessorFunc func(sourceID string, msg models.Message)
+
 // StartProcessor starts a goroutine that processes events from the queue sequentially
 // This ensures only one event is processed at a time, preventing race conditions
-func (eq *EventQueue) StartProcessor(registry *Registry, scenarioManager *ScenarioManager, sagaManager *SagaManager, logStore *LogStore) {
+func (eq *EventQueue) StartProcessor(processor ProcessorFunc) {
 	go func() {
-		logStore.LogAndStore("info", "Event queue processor started")
 		for queuedEvent := range eq.events {
-			logStore.LogAndStore("info", "Processing queued event from %s: %s", queuedEvent.SourceID, queuedEvent.Message.EventType)
-			handleEvent(queuedEvent.SourceID, queuedEvent.Message, registry, scenarioManager, sagaManager, logStore)
+			processor(queuedEvent.SourceID, queuedEvent.Message)
 		}
-		logStore.LogAndStore("info", "Event queue processor stopped")
 	}()
 }
 

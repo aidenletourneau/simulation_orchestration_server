@@ -1,8 +1,14 @@
-package main
+package websocket
 
 import (
 	"net/http"
 
+	"github.com/aidenletourneau/simulation_orchestration_server/server/internal/logging"
+	"github.com/aidenletourneau/simulation_orchestration_server/server/internal/models"
+	"github.com/aidenletourneau/simulation_orchestration_server/server/internal/queue"
+	"github.com/aidenletourneau/simulation_orchestration_server/server/internal/registry"
+	"github.com/aidenletourneau/simulation_orchestration_server/server/internal/saga"
+	"github.com/aidenletourneau/simulation_orchestration_server/server/internal/scenario"
 	"github.com/gorilla/websocket"
 )
 
@@ -13,8 +19,18 @@ var upgrader = websocket.Upgrader{
 	},
 }
 
+// EventHandler is a function type for handling events
+type EventHandler func(sourceID string, msg models.Message)
+
 // HandleWebSocket handles WebSocket connections
-func HandleWebSocket(registry *Registry, scenarioManager *ScenarioManager, sagaManager *SagaManager, eventQueue *EventQueue, logStore *LogStore) http.HandlerFunc {
+func HandleWebSocket(
+	reg *registry.Registry,
+	scenarioManager *scenario.ScenarioManager,
+	sagaManager *saga.SagaManager,
+	eventQueue *queue.EventQueue,
+	logStore *logging.LogStore,
+	eventHandler EventHandler,
+) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		conn, err := upgrader.Upgrade(w, r, nil)
 		if err != nil {
@@ -26,7 +42,7 @@ func HandleWebSocket(registry *Registry, scenarioManager *ScenarioManager, sagaM
 		logStore.LogAndStore("info", "New WebSocket connection established")
 
 		// Wait for registration message
-		var msg Message
+		var msg models.Message
 		if err := conn.ReadJSON(&msg); err != nil {
 			logStore.LogAndStore("error", "Failed to read registration: %v", err)
 			return
@@ -44,11 +60,11 @@ func HandleWebSocket(registry *Registry, scenarioManager *ScenarioManager, sagaM
 			return
 		}
 
-		registry.Register(simID, msg.Name, conn)
+		reg.Register(simID, msg.Name, conn)
 		logStore.LogAndStore("info", "Simulation registered: %s (%s)", simID, msg.Name)
 
 		// Send registration confirmation
-		response := Message{
+		response := models.Message{
 			Type:   "registered",
 			Status: "ok",
 		}
@@ -59,7 +75,7 @@ func HandleWebSocket(registry *Registry, scenarioManager *ScenarioManager, sagaM
 
 		// Handle messages
 		for {
-			var msg Message
+			var msg models.Message
 			if err := conn.ReadJSON(&msg); err != nil {
 				logStore.LogAndStore("error", "Error reading message from %s: %v", simID, err)
 				break
@@ -72,7 +88,7 @@ func HandleWebSocket(registry *Registry, scenarioManager *ScenarioManager, sagaM
 				if !eventQueue.Enqueue(simID, msg) {
 					logStore.LogAndStore("error", "Failed to enqueue event from %s: %s", simID, msg.EventType)
 					// Optionally send error response to simulation
-					errorResponse := Message{
+					errorResponse := models.Message{
 						Type:   "error",
 						Status: "queue_full",
 					}
@@ -90,48 +106,14 @@ func HandleWebSocket(registry *Registry, scenarioManager *ScenarioManager, sagaM
 		}
 
 		// Cleanup on disconnect
-		registry.Unregister(simID)
+		reg.Unregister(simID)
 		logStore.LogAndStore("info", "Simulation disconnected: %s", simID)
 	}
 }
 
-// handleEvent processes incoming events and creates Sagas when rules match
-// This is the entry point for Saga-based transaction coordination
-func handleEvent(sourceID string, msg Message, registry *Registry, scenarioManager *ScenarioManager, sagaManager *SagaManager, logStore *LogStore) {
-	// Create event
-	event := Event{
-		Type:      msg.Type,
-		EventType: msg.EventType,
-		Source:    sourceID,
-		Payload:   msg.Payload,
-	}
-
-	logStore.LogAndStore("info", "Event received from %s: %s", sourceID, msg.EventType)
-
-	// Process event through scenario manager to get matching actions
-	actions := scenarioManager.ProcessEvent(event)
-
-	if len(actions) == 0 {
-		logStore.LogAndStore("info", "No matching rules for event: %s", msg.EventType)
-		return
-	}
-
-	// Create a Saga from the actions
-	// The Saga ensures eventual consistency: either all steps complete or all are rolled back
-	saga, err := sagaManager.CreateSaga(actions)
-	if err != nil {
-		logStore.LogAndStore("error", "Failed to create Saga: %v", err)
-		return
-	}
-
-	logStore.LogAndStore("info", "Saga %s created from event %s with %d steps", saga.SagaID, msg.EventType, len(actions))
-	// Note: The first step is dispatched automatically by CreateSaga
-	// Subsequent steps will be dispatched when step.completed events are received
-}
-
 // handleStepCompleted processes step.completed events from simulations
 // This advances the Saga to the next step or marks it as completed
-func handleStepCompleted(simID string, msg Message, sagaManager *SagaManager, logStore *LogStore) {
+func handleStepCompleted(simID string, msg models.Message, sagaManager *saga.SagaManager, logStore *logging.LogStore) {
 	if msg.SagaID == "" {
 		logStore.LogAndStore("error", "step.completed event missing saga_id from %s", simID)
 		return
@@ -152,7 +134,7 @@ func handleStepCompleted(simID string, msg Message, sagaManager *SagaManager, lo
 
 // handleStepFailed processes step.failed events from simulations
 // This triggers compensation for all previously completed steps
-func handleStepFailed(simID string, msg Message, sagaManager *SagaManager, logStore *LogStore) {
+func handleStepFailed(simID string, msg models.Message, sagaManager *saga.SagaManager, logStore *logging.LogStore) {
 	if msg.SagaID == "" {
 		logStore.LogAndStore("error", "step.failed event missing saga_id from %s", simID)
 		return

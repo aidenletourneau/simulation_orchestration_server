@@ -1,4 +1,4 @@
-package main
+package models
 
 import "github.com/gorilla/websocket"
 
@@ -65,10 +65,9 @@ type WhenCondition struct {
 
 // Action defines what to do when rule fires
 type Action struct {
-	SendTo           string                 `yaml:"send_to"`
-	Command          string                 `yaml:"command"`
-	Params           map[string]interface{} `yaml:"params"`
-	CompensateCommand string               `yaml:"compensate_command,omitempty"` // Rollback command
+	SendTo            string                 `yaml:"send_to"`
+	Command           string                 `yaml:"command"`
+	Params            map[string]interface{} `yaml:"params"`
+	CompensateCommand string                 `yaml:"compensate_command,omitempty"` // Rollback command
 	CompensateParams  map[string]interface{} `yaml:"compensate_params,omitempty"` // Compensation parameters
 }
-

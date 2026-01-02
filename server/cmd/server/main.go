@@ -6,6 +6,14 @@ import (
 	"net/http"
 	"os"
 
+	"github.com/aidenletourneau/simulation_orchestration_server/server/internal/api"
+	"github.com/aidenletourneau/simulation_orchestration_server/server/internal/logging"
+	"github.com/aidenletourneau/simulation_orchestration_server/server/internal/queue"
+	"github.com/aidenletourneau/simulation_orchestration_server/server/internal/registry"
+	"github.com/aidenletourneau/simulation_orchestration_server/server/internal/saga"
+	"github.com/aidenletourneau/simulation_orchestration_server/server/internal/scenario"
+	"github.com/aidenletourneau/simulation_orchestration_server/server/internal/store"
+	"github.com/aidenletourneau/simulation_orchestration_server/server/internal/websocket"
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
 	"github.com/joho/godotenv"
@@ -30,15 +38,15 @@ func main() {
 	flag.Parse()
 
 	// Initialize components
-	registry := NewRegistry()
-	scenarioManager := NewScenarioManager()
-	sagaManager := NewSagaManager(registry)
-	logStore := NewLogStore(10000) // Store up to 10000 log entries
+	reg := registry.NewRegistry()
+	scenarioManager := scenario.NewScenarioManager()
+	sagaManager := saga.NewSagaManager(reg)
+	logStore := logging.NewLogStore(10000) // Store up to 10000 log entries
 
 	// Initialize scenario store
 	// Use DATABASE_URL environment variable if set, otherwise default to SQLite
 	dbConnectionString := getEnv("DATABASE_URL", "scenarios.db")
-	scenarioStore, err := NewScenarioStore(dbConnectionString)
+	scenarioStore, err := store.NewScenarioStore(dbConnectionString)
 	if err != nil {
 		log.Fatalf("Failed to initialize scenario store: %v", err)
 	}
@@ -46,10 +54,13 @@ func main() {
 
 	// Create event queue for ordered event processing (prevents race conditions)
 	// Buffer size of 1000 should be sufficient for most use cases
-	eventQueue := NewEventQueue(1000)
+	eventQueue := queue.NewEventQueue(1000)
+
+	// Create event handler
+	eventHandler := websocket.CreateEventHandler(scenarioManager, sagaManager, logStore)
 
 	// Start event queue processor (runs in background goroutine)
-	eventQueue.StartProcessor(registry, scenarioManager, sagaManager, logStore)
+	eventQueue.StartProcessor(eventHandler)
 
 	// Load initial scenario (optional, can be overridden via API)
 	if *scenarioFile != "" {
@@ -74,17 +85,17 @@ func main() {
 	})
 
 	// WebSocket endpoint
-	r.Get("/ws", HandleWebSocket(registry, scenarioManager, sagaManager, eventQueue, logStore))
+	r.Get("/ws", websocket.HandleWebSocket(reg, scenarioManager, sagaManager, eventQueue, logStore, eventHandler))
 
 	// API endpoints
 	r.Route("/api", func(r chi.Router) {
-		r.Get("/simulations", HandleGetSimulations(registry))
-		r.Get("/logs", HandleGetLogs(logStore))
-		r.Get("/scenario", HandleGetScenario(scenarioManager))
-		r.Get("/scenarios", HandleGetScenarios(scenarioStore))
-		r.Get("/scenarios/{id}", HandleGetScenarioYAML(scenarioStore))
-		r.Post("/scenarios/upload", HandleUploadScenario(scenarioManager, scenarioStore, logStore))
-		r.Post("/scenarios/{id}/activate", HandleActivateScenario(scenarioManager, scenarioStore, logStore))
+		r.Get("/simulations", api.HandleGetSimulations(reg))
+		r.Get("/logs", api.HandleGetLogs(logStore))
+		r.Get("/scenario", api.HandleGetScenario(scenarioManager))
+		r.Get("/scenarios", api.HandleGetScenarios(scenarioStore))
+		r.Get("/scenarios/{id}", api.HandleGetScenarioYAML(scenarioStore))
+		r.Post("/scenarios/upload", api.HandleUploadScenario(scenarioManager, scenarioStore, logStore))
+		r.Post("/scenarios/{id}/activate", api.HandleActivateScenario(scenarioManager, scenarioStore, logStore))
 	})
 
 	// Start server

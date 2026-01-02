@@ -1,4 +1,14 @@
-package main
+package saga
+
+import (
+	"fmt"
+	"log"
+	"sync"
+	"time"
+
+	"github.com/aidenletourneau/simulation_orchestration_server/server/internal/models"
+	"github.com/aidenletourneau/simulation_orchestration_server/server/internal/registry"
+)
 
 /*
 Saga Pattern Implementation for Eventual Consistency
@@ -30,21 +40,14 @@ The Saga pattern guarantees that:
 - All completed actions are rolled back via compensations
 */
 
-import (
-	"fmt"
-	"log"
-	"sync"
-	"time"
-)
-
 // SagaStatus represents the current state of a Saga
 type SagaStatus string
 
 const (
-	SagaStatusPending     SagaStatus = "Pending"
-	SagaStatusInProgress  SagaStatus = "InProgress"
-	SagaStatusCompleted   SagaStatus = "Completed"
-	SagaStatusFailed      SagaStatus = "Failed"
+	SagaStatusPending      SagaStatus = "Pending"
+	SagaStatusInProgress   SagaStatus = "InProgress"
+	SagaStatusCompleted    SagaStatus = "Completed"
+	SagaStatusFailed       SagaStatus = "Failed"
 	SagaStatusCompensating SagaStatus = "Compensating"
 )
 
@@ -52,33 +55,33 @@ const (
 type StepStatus string
 
 const (
-	StepStatusPending  StepStatus = "Pending"
-	StepStatusInFlight StepStatus = "InFlight"
+	StepStatusPending   StepStatus = "Pending"
+	StepStatusInFlight  StepStatus = "InFlight"
 	StepStatusCompleted StepStatus = "Completed"
 	StepStatusFailed    StepStatus = "Failed"
 )
 
 // SagaStep represents a single step in a Saga transaction
 type SagaStep struct {
-	StepID          int                    // Sequential step identifier
-	TargetSimulation string                 // Which simulation to send command to
-	Command         string                 // Forward action command
-	CompensateCommand string               // Rollback command
-	Params          map[string]interface{} // Command parameters
-	CompensateParams map[string]interface{} // Compensation parameters
-	Status          StepStatus             // Current step status
-	CreatedAt       time.Time              // When step was created
-	CompletedAt     *time.Time             // When step completed (nil if not completed)
+	StepID            int                    // Sequential step identifier
+	TargetSimulation  string                 // Which simulation to send command to
+	Command           string                 // Forward action command
+	CompensateCommand string                 // Rollback command
+	Params            map[string]interface{} // Command parameters
+	CompensateParams  map[string]interface{} // Compensation parameters
+	Status            StepStatus             // Current step status
+	CreatedAt         time.Time              // When step was created
+	CompletedAt       *time.Time             // When step completed (nil if not completed)
 }
 
 // Saga represents a distributed transaction across multiple simulations
 // Each Saga ensures eventual consistency: either all steps complete or all are rolled back
 type Saga struct {
-	SagaID      string      // Unique identifier for this Saga
-	CurrentStep int         // Index of the current step being executed (0-based)
-	Status      SagaStatus  // Overall Saga status
-	Steps       []*SagaStep // Ordered list of steps to execute
-	CreatedAt   time.Time   // When Saga was created
+	SagaID      string       // Unique identifier for this Saga
+	CurrentStep int          // Index of the current step being executed (0-based)
+	Status      SagaStatus   // Overall Saga status
+	Steps       []*SagaStep  // Ordered list of steps to execute
+	CreatedAt   time.Time    // When Saga was created
 	mu          sync.RWMutex // Protects Saga state
 	lockedSims  []string     // List of simulation IDs that are locked by this saga
 }
@@ -87,21 +90,21 @@ type Saga struct {
 // It handles Saga creation, step progression, and compensation in a thread-safe manner
 // It also prevents concurrent Sagas from targeting the same simulation
 type SagaManager struct {
-	sagas map[string]*Saga // Map of SagaID -> Saga
-	mu    sync.RWMutex     // Protects sagas map
-	registry *Registry      // Reference to simulation registry for sending commands
-	
+	sagas    map[string]*Saga // Map of SagaID -> Saga
+	mu       sync.RWMutex     // Protects sagas map
+	registry *registry.Registry // Reference to simulation registry for sending commands
+
 	// Simulation-level locking to prevent concurrent Sagas
 	simulationLocks map[string]*sync.Mutex // Map of simID -> mutex
-	activeSagas     map[string][]string     // Map of simID -> []sagaIDs (for conflict tracking)
-	lockMu          sync.Mutex              // Protects simulationLocks and activeSagas
+	activeSagas     map[string][]string    // Map of simID -> []sagaIDs (for conflict tracking)
+	lockMu          sync.Mutex             // Protects simulationLocks and activeSagas
 }
 
 // NewSagaManager creates a new SagaManager
-func NewSagaManager(registry *Registry) *SagaManager {
+func NewSagaManager(reg *registry.Registry) *SagaManager {
 	return &SagaManager{
 		sagas:           make(map[string]*Saga),
-		registry:        registry,
+		registry:        reg,
 		simulationLocks: make(map[string]*sync.Mutex),
 		activeSagas:     make(map[string][]string),
 	}
@@ -119,7 +122,7 @@ func (sm *SagaManager) acquireSimulationLock(simID string) (*sync.Mutex, bool) {
 	}
 
 	lock := sm.simulationLocks[simID]
-	
+
 	// Try to acquire lock (non-blocking check)
 	acquired := lock.TryLock()
 	return lock, acquired
@@ -128,10 +131,10 @@ func (sm *SagaManager) acquireSimulationLock(simID string) (*sync.Mutex, bool) {
 // releaseSimulationLock releases a lock for a simulation
 func (sm *SagaManager) releaseSimulationLock(simID string, lock *sync.Mutex) {
 	lock.Unlock()
-	
+
 	sm.lockMu.Lock()
 	defer sm.lockMu.Unlock()
-	
+
 	// Remove from active sagas tracking
 	if sagas, exists := sm.activeSagas[simID]; exists {
 		// Remove this saga from the list (cleanup happens in cleanupSimulationLocks)
@@ -143,7 +146,7 @@ func (sm *SagaManager) releaseSimulationLock(simID string, lock *sync.Mutex) {
 func (sm *SagaManager) trackActiveSimulation(simID string, sagaID string) {
 	sm.lockMu.Lock()
 	defer sm.lockMu.Unlock()
-	
+
 	if sm.activeSagas[simID] == nil {
 		sm.activeSagas[simID] = make([]string, 0)
 	}
@@ -155,7 +158,7 @@ func (sm *SagaManager) trackActiveSimulation(simID string, sagaID string) {
 func (sm *SagaManager) untrackActiveSimulation(simID string, sagaID string) {
 	sm.lockMu.Lock()
 	defer sm.lockMu.Unlock()
-	
+
 	if sagas, exists := sm.activeSagas[simID]; exists {
 		for i, id := range sagas {
 			if id == sagaID {
@@ -177,12 +180,12 @@ func (sm *SagaManager) untrackActiveSimulation(simID string, sagaID string) {
 func (sm *SagaManager) CheckConflict(simID string) ([]string, bool) {
 	sm.lockMu.Lock()
 	defer sm.lockMu.Unlock()
-	
+
 	activeSagas, exists := sm.activeSagas[simID]
 	if !exists || len(activeSagas) == 0 {
 		return nil, false
 	}
-	
+
 	// Filter to only in-progress sagas
 	conflictingSagas := make([]string, 0)
 	sm.mu.RLock()
@@ -194,7 +197,7 @@ func (sm *SagaManager) CheckConflict(simID string) ([]string, bool) {
 		}
 	}
 	sm.mu.RUnlock()
-	
+
 	return conflictingSagas, len(conflictingSagas) > 0
 }
 
@@ -205,7 +208,7 @@ func (sm *SagaManager) cleanupSimulationLocks(saga *Saga) {
 	for _, step := range saga.Steps {
 		sims[step.TargetSimulation] = true
 	}
-	
+
 	// Untrack this saga from all simulations
 	for simID := range sims {
 		sm.untrackActiveSimulation(simID, saga.SagaID)
@@ -215,7 +218,7 @@ func (sm *SagaManager) cleanupSimulationLocks(saga *Saga) {
 // CreateSaga creates a new Saga from a list of actions (from a scenario rule)
 // The Saga is created in Pending status and the first step is dispatched immediately
 // This method now includes conflict detection and simulation-level locking
-func (sm *SagaManager) CreateSaga(actions []Action) (*Saga, error) {
+func (sm *SagaManager) CreateSaga(actions []models.Action) (*Saga, error) {
 	if len(actions) == 0 {
 		return nil, fmt.Errorf("cannot create saga with no actions")
 	}
@@ -227,7 +230,7 @@ func (sm *SagaManager) CreateSaga(actions []Action) (*Saga, error) {
 			conflictingSims[action.SendTo] = conflicts
 		}
 	}
-	
+
 	if len(conflictingSims) > 0 {
 		log.Printf("Conflict detected: cannot create saga - simulations are busy")
 		for simID, sagaIDs := range conflictingSims {
@@ -239,7 +242,7 @@ func (sm *SagaManager) CreateSaga(actions []Action) (*Saga, error) {
 	// Acquire locks for all target simulations
 	locks := make(map[string]*sync.Mutex)
 	lockedSims := make([]string, 0)
-	
+
 	for _, action := range actions {
 		lock, acquired := sm.acquireSimulationLock(action.SendTo)
 		if !acquired {
@@ -260,14 +263,14 @@ func (sm *SagaManager) CreateSaga(actions []Action) (*Saga, error) {
 	steps := make([]*SagaStep, len(actions))
 	for i, action := range actions {
 		steps[i] = &SagaStep{
-			StepID:          i,
-			TargetSimulation: action.SendTo,
-			Command:         action.Command,
+			StepID:            i,
+			TargetSimulation:  action.SendTo,
+			Command:           action.Command,
 			CompensateCommand: action.CompensateCommand,
-			Params:          action.Params,
-			CompensateParams: action.CompensateParams,
-			Status:          StepStatusPending,
-			CreatedAt:       time.Now(),
+			Params:            action.Params,
+			CompensateParams:  action.CompensateParams,
+			Status:            StepStatusPending,
+			CreatedAt:         time.Now(),
 		}
 	}
 
@@ -330,13 +333,13 @@ func (sm *SagaManager) dispatchStep(saga *Saga, stepIndex int) error {
 
 	// Create command message with Saga context
 	stepIDPtr := &stepIndex
-	command := Message{
+	command := models.Message{
 		Type:    "command",
 		Command: step.Command,
 		Params:  step.Params,
 		// Include Saga context so simulation can acknowledge with saga_id and step_id
-		SagaID:  saga.SagaID,
-		StepID:  stepIDPtr,
+		SagaID: saga.SagaID,
+		StepID: stepIDPtr,
 	}
 
 	// Send command
@@ -395,7 +398,7 @@ func (sm *SagaManager) HandleStepCompletion(sagaID string, stepID int) error {
 		// All steps completed successfully
 		saga.Status = SagaStatusCompleted
 		log.Printf("Saga %s: All steps completed successfully", sagaID)
-		
+
 		// Release all simulation locks and cleanup tracking
 		saga.mu.Unlock()
 		sm.cleanupSimulationLocks(saga)
@@ -500,7 +503,7 @@ func (sm *SagaManager) triggerCompensation(saga *Saga, lastStepToCompensate int)
 
 		// Create compensation command
 		stepIDPtr := &i
-		compensateMsg := Message{
+		compensateMsg := models.Message{
 			Type:    "command",
 			Command: step.CompensateCommand,
 			Params:  step.CompensateParams,
@@ -563,4 +566,3 @@ func (sm *SagaManager) GetAllSagas() map[string]*Saga {
 	}
 	return result
 }
-

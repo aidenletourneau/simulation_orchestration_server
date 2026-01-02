@@ -1,30 +1,31 @@
-package main
+package registry
 
 import (
 	"sync"
 
+	"github.com/aidenletourneau/simulation_orchestration_server/server/internal/models"
 	"github.com/gorilla/websocket"
 )
 
 // Registry manages connected simulations
 type Registry struct {
-	simulations map[string]*Simulation
+	simulations map[string]*models.Simulation
 	mu          sync.RWMutex
 }
 
 // NewRegistry creates a new simulation registry
 func NewRegistry() *Registry {
 	return &Registry{
-		simulations: make(map[string]*Simulation),
+		simulations: make(map[string]*models.Simulation),
 	}
 }
 
 // Register adds a new simulation to the registry
-func (r *Registry) Register(id, name string, conn *websocket.Conn) *Simulation {
+func (r *Registry) Register(id, name string, conn *websocket.Conn) *models.Simulation {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 
-	sim := &Simulation{
+	sim := &models.Simulation{
 		ID:         id,
 		Name:       name,
 		Connection: conn,
@@ -35,7 +36,7 @@ func (r *Registry) Register(id, name string, conn *websocket.Conn) *Simulation {
 }
 
 // Get retrieves a simulation by ID
-func (r *Registry) Get(id string) (*Simulation, bool) {
+func (r *Registry) Get(id string) (*models.Simulation, bool) {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
 
@@ -52,14 +53,13 @@ func (r *Registry) Unregister(id string) {
 }
 
 // GetAll returns all registered simulations
-func (r *Registry) GetAll() map[string]*Simulation {
+func (r *Registry) GetAll() map[string]*models.Simulation {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
 
-	result := make(map[string]*Simulation)
+	result := make(map[string]*models.Simulation)
 	for k, v := range r.simulations {
 		result[k] = v
 	}
 	return result
 }
-

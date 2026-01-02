@@ -1,16 +1,17 @@
-package main
+package scenario
 
 import (
 	"fmt"
 	"log"
 	"os"
 
+	"github.com/aidenletourneau/simulation_orchestration_server/server/internal/models"
 	"gopkg.in/yaml.v3"
 )
 
 // ScenarioManager handles loading and matching scenario rules
 type ScenarioManager struct {
-	scenario *Scenario
+	scenario *models.Scenario
 }
 
 // NewScenarioManager creates a new scenario manager
@@ -30,7 +31,7 @@ func (sm *ScenarioManager) LoadScenario(filepath string) error {
 
 // LoadScenarioFromBytes loads a scenario from YAML bytes
 func (sm *ScenarioManager) LoadScenarioFromBytes(data []byte) error {
-	var scenarioFile ScenarioFile
+	var scenarioFile models.ScenarioFile
 	if err := yaml.Unmarshal(data, &scenarioFile); err != nil {
 		return fmt.Errorf("failed to parse YAML: %w", err)
 	}
@@ -41,17 +42,17 @@ func (sm *ScenarioManager) LoadScenarioFromBytes(data []byte) error {
 }
 
 // GetCurrentScenario returns information about the currently loaded scenario
-func (sm *ScenarioManager) GetCurrentScenario() *Scenario {
+func (sm *ScenarioManager) GetCurrentScenario() *models.Scenario {
 	return sm.scenario
 }
 
 // ProcessEvent checks if an event matches any rules and returns actions to execute
-func (sm *ScenarioManager) ProcessEvent(event Event) []Action {
+func (sm *ScenarioManager) ProcessEvent(event models.Event) []models.Action {
 	if sm.scenario == nil {
 		return nil
 	}
 
-	var actions []Action
+	var actions []models.Action
 
 	for _, rule := range sm.scenario.Rules {
 		// Check if event type matches
