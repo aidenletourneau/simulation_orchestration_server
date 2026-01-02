@@ -53,6 +53,8 @@ func main() {
 	r.Route("/api", func(r chi.Router) {
 		r.Get("/simulations", HandleGetSimulations(registry))
 		r.Get("/logs", HandleGetLogs(logStore))
+		r.Get("/scenario", HandleGetScenario(scenarioManager))
+		r.Post("/scenarios/upload", HandleUploadScenario(scenarioManager, logStore))
 	})
 
 	// Start server

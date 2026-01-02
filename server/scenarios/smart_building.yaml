@@ -1,0 +1,98 @@
+scenario:
+  name: "Smart Building Management"
+  rules:
+    # Occupancy-based lighting
+    - when:
+        event_type: "occupancy.detected"
+        from: "sensor_sim"
+      then:
+        - send_to: "lighting_sim"
+          command: "adjust_brightness"
+          params:
+            level: "optimal"
+            zone: "detected_zone"
+        - send_to: "hvac_sim"
+          command: "optimize_zone"
+          params:
+            zone: "detected_zone"
+            target_temp: 22
+    
+    # Energy optimization
+    - when:
+        event_type: "energy.peak"
+        from: "metering_sim"
+      then:
+        - send_to: "hvac_sim"
+          command: "reduce_load"
+          params:
+            reduction: 0.15
+        - send_to: "lighting_sim"
+          command: "dim_non_essential"
+          params:
+            dim_level: 0.7
+        - send_to: "battery_sim"
+          command: "discharge"
+          params:
+            amount: "calculated"
+    
+    # Fire alarm response
+    - when:
+        event_type: "fire.alarm"
+      then:
+        - send_to: "safety_sim"
+          command: "activate_evacuation"
+          params:
+            zones: "all"
+        - send_to: "hvac_sim"
+          command: "smoke_control_mode"
+          params:
+            pressurize_stairs: true
+        - send_to: "lighting_sim"
+          command: "emergency_lighting"
+          params:
+            mode: "evacuation"
+        - send_to: "elevator_sim"
+          command: "recall_to_ground"
+          params:
+            priority: "fire_service"
+        - send_to: "notification_sim"
+          command: "alert_emergency_services"
+          params:
+            type: "fire"
+    
+    # Scheduled maintenance
+    - when:
+        event_type: "maintenance.scheduled"
+        from: "scheduling_sim"
+      then:
+        - send_to: "hvac_sim"
+          command: "prepare_maintenance"
+          params:
+            system: "specified"
+        - send_to: "access_sim"
+          command: "grant_temporary_access"
+          params:
+            duration: "maintenance_window"
+        - send_to: "notification_sim"
+          command: "notify_occupants"
+          params:
+            message: "Scheduled maintenance in progress"
+    
+    # Security breach in building
+    - when:
+        event_type: "security.breach"
+        from: "security_sim"
+      then:
+        - send_to: "access_sim"
+          command: "lockdown_zone"
+          params:
+            zone: "breach_location"
+        - send_to: "camera_sim"
+          command: "focus_on_area"
+          params:
+            area: "breach_location"
+            recording: true
+        - send_to: "notification_sim"
+          command: "alert_security_team"
+          params:
+            urgency: "high"

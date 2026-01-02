@@ -1,0 +1,94 @@
+scenario:
+  name: "Industrial Automation Control"
+  rules:
+    # Production line start
+    - when:
+        event_type: "production.start"
+        from: "control_sim"
+      then:
+        - send_to: "machine_sim"
+          command: "initialize_line"
+          params:
+            line_id: "line_1"
+            speed: "normal"
+        - send_to: "quality_sim"
+          command: "enable_monitoring"
+          params:
+            checks: ["all"]
+        - send_to: "safety_sim"
+          command: "verify_safety_systems"
+          params:
+            systems: ["all"]
+    
+    # Quality issue detection
+    - when:
+        event_type: "quality.issue"
+        from: "quality_sim"
+      then:
+        - send_to: "machine_sim"
+          command: "reduce_speed"
+          params:
+            factor: 0.5
+        - send_to: "control_sim"
+          command: "alert_operator"
+          params:
+            severity: "medium"
+            issue_type: "quality"
+        - send_to: "logging_sim"
+          command: "record_defect"
+          params:
+            timestamp: "now"
+            details: "auto"
+    
+    # Critical quality failure
+    - when:
+        event_type: "quality.critical"
+        from: "quality_sim"
+      then:
+        - send_to: "machine_sim"
+          command: "emergency_stop"
+          params:
+            reason: "quality_critical"
+        - send_to: "control_sim"
+          command: "halt_production"
+          params:
+            line_id: "affected_line"
+        - send_to: "maintenance_sim"
+          command: "schedule_inspection"
+          params:
+            priority: "urgent"
+    
+    # Maintenance required
+    - when:
+        event_type: "maintenance.required"
+      then:
+        - send_to: "machine_sim"
+          command: "prepare_for_maintenance"
+          params:
+            safe_mode: true
+        - send_to: "scheduling_sim"
+          command: "find_maintenance_window"
+          params:
+            duration: "estimated"
+        - send_to: "inventory_sim"
+          command: "check_parts"
+          params:
+            parts_list: "required"
+    
+    # Production target reached
+    - when:
+        event_type: "production.target_reached"
+        from: "control_sim"
+      then:
+        - send_to: "machine_sim"
+          command: "reduce_to_idle"
+          params:
+            energy_save: true
+        - send_to: "reporting_sim"
+          command: "generate_production_report"
+          params:
+            include_metrics: true
+        - send_to: "quality_sim"
+          command: "finalize_statistics"
+          params:
+            session_id: "current"

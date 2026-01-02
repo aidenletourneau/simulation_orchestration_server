@@ -1,0 +1,83 @@
+scenario:
+  name: "Training Exercise Orchestration"
+  rules:
+    # Exercise start sequence
+    - when:
+        event_type: "exercise.start"
+      then:
+        - send_to: "vr_sim"
+          command: "load_scenario"
+          params:
+            exercise_type: "emergency_response"
+            difficulty: "intermediate"
+        - send_to: "cyber_sim"
+          command: "simulate_attack"
+          params:
+            attack_type: "phishing"
+            intensity: "moderate"
+        - send_to: "logging_sim"
+          command: "start_recording"
+          params:
+            session_id: "auto"
+            participants: "all"
+    
+    # Trainee action triggers feedback
+    - when:
+        event_type: "trainee.action"
+        from: "vr_sim"
+      then:
+        - send_to: "evaluation_sim"
+          command: "assess_action"
+          params:
+            criteria: ["correctness", "timing", "safety"]
+        - send_to: "instructor_sim"
+          command: "update_dashboard"
+          params:
+            action_type: "trainee_interaction"
+    
+    # Correct response triggers positive feedback
+    - when:
+        event_type: "response.correct"
+        from: "evaluation_sim"
+      then:
+        - send_to: "vr_sim"
+          command: "show_feedback"
+          params:
+            type: "positive"
+            message: "Correct response!"
+        - send_to: "scoring_sim"
+          command: "add_points"
+          params:
+            points: 10
+            reason: "correct_action"
+    
+    # Incorrect response triggers guidance
+    - when:
+        event_type: "response.incorrect"
+        from: "evaluation_sim"
+      then:
+        - send_to: "vr_sim"
+          command: "show_feedback"
+          params:
+            type: "guidance"
+            message: "Consider alternative approach"
+        - send_to: "hint_sim"
+          command: "provide_hint"
+          params:
+            level: "subtle"
+    
+    # Exercise completion
+    - when:
+        event_type: "exercise.complete"
+      then:
+        - send_to: "logging_sim"
+          command: "stop_recording"
+        - send_to: "reporting_sim"
+          command: "generate_report"
+          params:
+            include_metrics: true
+            include_recommendations: true
+        - send_to: "vr_sim"
+          command: "show_summary"
+          params:
+            display_scores: true

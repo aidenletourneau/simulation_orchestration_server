@@ -1,0 +1,66 @@
+scenario:
+  name: "Distributed Sensor Network"
+  rules:
+    # Temperature sensor alerts
+    - when:
+        event_type: "temperature.critical"
+        from: "sensor_sim"
+      then:
+        - send_to: "climate_sim"
+          command: "adjust_environment"
+          params:
+            action: "cooling"
+            target_temp: 22
+            urgency: "high"
+        - send_to: "monitoring_sim"
+          command: "log_reading"
+          params:
+            sensor_type: "temperature"
+            value: "critical"
+            location: "data_center"
+    
+    # Motion detection triggers security
+    - when:
+        event_type: "motion.detected"
+        from: "sensor_sim"
+      then:
+        - send_to: "security_sim"
+          command: "check_area"
+          params:
+            zone: "detected_zone"
+            priority: "medium"
+        - send_to: "camera_sim"
+          command: "focus_area"
+          params:
+            coordinates: "auto"
+            recording: true
+    
+    # Multiple sensor correlation
+    - when:
+        event_type: "sensor.anomaly"
+        from: "sensor_sim"
+      then:
+        - send_to: "analytics_sim"
+          command: "correlate_events"
+          params:
+            time_window: 300
+            sensor_types: ["all"]
+        - send_to: "alerting_sim"
+          command: "notify_operator"
+          params:
+            level: "warning"
+            message: "Sensor anomaly detected - analysis in progress"
+    
+    # Sensor network health check
+    - when:
+        event_type: "sensor.offline"
+      then:
+        - send_to: "monitoring_sim"
+          command: "mark_offline"
+          params:
+            status: "unavailable"
+        - send_to: "maintenance_sim"
+          command: "schedule_check"
+          params:
+            priority: "low"
+            estimated_duration: 1800

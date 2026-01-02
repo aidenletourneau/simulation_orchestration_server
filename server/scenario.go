@@ -25,6 +25,11 @@ func (sm *ScenarioManager) LoadScenario(filepath string) error {
 		return fmt.Errorf("failed to read scenario file: %w", err)
 	}
 
+	return sm.LoadScenarioFromBytes(data)
+}
+
+// LoadScenarioFromBytes loads a scenario from YAML bytes
+func (sm *ScenarioManager) LoadScenarioFromBytes(data []byte) error {
 	var scenarioFile ScenarioFile
 	if err := yaml.Unmarshal(data, &scenarioFile); err != nil {
 		return fmt.Errorf("failed to parse YAML: %w", err)
@@ -33,6 +38,11 @@ func (sm *ScenarioManager) LoadScenario(filepath string) error {
 	sm.scenario = &scenarioFile.Scenario
 	log.Printf("Loaded scenario: %s with %d rules", scenarioFile.Scenario.Name, len(scenarioFile.Scenario.Rules))
 	return nil
+}
+
+// GetCurrentScenario returns information about the currently loaded scenario
+func (sm *ScenarioManager) GetCurrentScenario() *Scenario {
+	return sm.scenario
 }
 
 // ProcessEvent checks if an event matches any rules and returns actions to execute
@@ -61,4 +71,3 @@ func (sm *ScenarioManager) ProcessEvent(event Event) []Action {
 
 	return actions
 }
-

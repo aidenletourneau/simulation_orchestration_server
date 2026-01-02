@@ -1,0 +1,65 @@
+scenario:
+  name: "Security Monitoring & Response"
+  rules:
+    # Intrusion detection triggers immediate response
+    - when:
+        event_type: "intrusion.detected"
+        from: "security_sim"
+      then:
+        - send_to: "cyber_sim"
+          command: "analyze_threat"
+          params:
+            source: "external"
+            priority: "high"
+            timestamp: "now"
+        - send_to: "vr_sim"
+          command: "display_alert"
+          params:
+            type: "security_breach"
+            severity: 9
+            message: "Intrusion detected - investigation in progress"
+        - send_to: "logging_sim"
+          command: "record_event"
+          params:
+            category: "security"
+            level: "critical"
+    
+    # When threat is confirmed, escalate response
+    - when:
+        event_type: "threat.confirmed"
+        from: "cyber_sim"
+      then:
+        - send_to: "vr_sim"
+          command: "activate_lockdown"
+          params:
+            level: "full"
+            duration: 3600
+        - send_to: "security_sim"
+          command: "enable_enhanced_monitoring"
+          params:
+            sensitivity: "maximum"
+        - send_to: "notification_sim"
+          command: "send_alert"
+          params:
+            recipients: ["admin", "security_team"]
+            message: "Confirmed security threat - lockdown activated"
+    
+    # False alarm recovery
+    - when:
+        event_type: "threat.false_alarm"
+        from: "cyber_sim"
+      then:
+        - send_to: "vr_sim"
+          command: "deactivate_lockdown"
+          params:
+            reason: "false_alarm"
+        - send_to: "security_sim"
+          command: "reset_monitoring"
+          params:
+            sensitivity: "normal"
+        - send_to: "logging_sim"
+          command: "record_event"
+          params:
+            category: "security"
+            level: "info"
+            note: "False alarm resolved"

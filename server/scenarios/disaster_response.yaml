@@ -1,0 +1,88 @@
+scenario:
+  name: "Disaster Response Coordination"
+  rules:
+    # Natural disaster detection
+    - when:
+        event_type: "disaster.detected"
+      then:
+        - send_to: "emergency_sim"
+          command: "activate_protocol"
+          params:
+            protocol: "disaster_response"
+            severity: "high"
+        - send_to: "communication_sim"
+          command: "broadcast_alert"
+          params:
+            channels: ["all"]
+            message: "Disaster detected - emergency protocols activated"
+        - send_to: "resource_sim"
+          command: "allocate_resources"
+          params:
+            priority: "critical"
+    
+    # Evacuation order
+    - when:
+        event_type: "evacuation.ordered"
+        from: "emergency_sim"
+      then:
+        - send_to: "vr_sim"
+          command: "display_evacuation_route"
+          params:
+            routes: "all_available"
+            update_interval: 30
+        - send_to: "navigation_sim"
+          command: "calculate_routes"
+          params:
+            avoid_areas: "hazard_zones"
+        - send_to: "monitoring_sim"
+          command: "track_evacuation"
+          params:
+            real_time: true
+    
+    # Resource request handling
+    - when:
+        event_type: "resource.requested"
+      then:
+        - send_to: "resource_sim"
+          command: "check_availability"
+          params:
+            resource_type: "auto"
+        - send_to: "logistics_sim"
+          command: "plan_delivery"
+          params:
+            priority: "high"
+    
+    # Medical emergency
+    - when:
+        event_type: "medical.emergency"
+      then:
+        - send_to: "medical_sim"
+          command: "dispatch_team"
+          params:
+            urgency: "critical"
+        - send_to: "location_sim"
+          command: "share_coordinates"
+          params:
+            precision: "high"
+        - send_to: "communication_sim"
+          command: "notify_hospital"
+          params:
+            prepare_for: "emergency_arrival"
+    
+    # All clear signal
+    - when:
+        event_type: "all.clear"
+        from: "emergency_sim"
+      then:
+        - send_to: "vr_sim"
+          command: "clear_alerts"
+          params:
+            message: "All clear - situation resolved"
+        - send_to: "communication_sim"
+          command: "broadcast_update"
+          params:
+            message: "All clear signal received"
+        - send_to: "resource_sim"
+          command: "stand_down"
+          params:
+            return_to_normal: true
