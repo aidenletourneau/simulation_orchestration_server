@@ -21,6 +21,13 @@ func main() {
 	sagaManager := NewSagaManager(registry)
 	logStore := NewLogStore(10000) // Store up to 10000 log entries
 
+	// Initialize scenario store (SQLite database)
+	scenarioStore, err := NewScenarioStore("scenarios.db")
+	if err != nil {
+		log.Fatalf("Failed to initialize scenario store: %v", err)
+	}
+	defer scenarioStore.Close()
+
 	// Create event queue for ordered event processing (prevents race conditions)
 	// Buffer size of 1000 should be sufficient for most use cases
 	eventQueue := NewEventQueue(1000)
@@ -28,9 +35,13 @@ func main() {
 	// Start event queue processor (runs in background goroutine)
 	eventQueue.StartProcessor(registry, scenarioManager, sagaManager, logStore)
 
-	// Load scenario
-	if err := scenarioManager.LoadScenario(*scenarioFile); err != nil {
-		log.Fatalf("Failed to load scenario: %v", err)
+	// Load initial scenario (optional, can be overridden via API)
+	if *scenarioFile != "" {
+		if err := scenarioManager.LoadScenario(*scenarioFile); err != nil {
+			log.Printf("Warning: Failed to load initial scenario: %v", err)
+		} else {
+			logStore.LogAndStore("info", "Loaded initial scenario from: %s", *scenarioFile)
+		}
 	}
 
 	logStore.LogAndStore("info", "Server starting on port %s", *port)
@@ -54,7 +65,10 @@ func main() {
 		r.Get("/simulations", HandleGetSimulations(registry))
 		r.Get("/logs", HandleGetLogs(logStore))
 		r.Get("/scenario", HandleGetScenario(scenarioManager))
-		r.Post("/scenarios/upload", HandleUploadScenario(scenarioManager, logStore))
+		r.Get("/scenarios", HandleGetScenarios(scenarioStore))
+		r.Get("/scenarios/{id}", HandleGetScenarioYAML(scenarioStore))
+		r.Post("/scenarios/upload", HandleUploadScenario(scenarioManager, scenarioStore, logStore))
+		r.Post("/scenarios/{id}/activate", HandleActivateScenario(scenarioManager, scenarioStore, logStore))
 	})
 
 	// Start server

@@ -10,6 +10,9 @@ simulation_server.exe
 # Test binary, built with `go test -c`
 *.test
 
+# Database
+*.db
+
 # Output of the go coverage tool
 *.out
 

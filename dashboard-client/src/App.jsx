@@ -9,6 +9,10 @@ function App() {
   const [scenario, setScenario] = useState(null)
   const [uploadStatus, setUploadStatus] = useState(null)
   const [uploading, setUploading] = useState(false)
+  const [storedScenarios, setStoredScenarios] = useState([])
+  const [selectedScenarioYAML, setSelectedScenarioYAML] = useState(null)
+  const [viewingScenarioId, setViewingScenarioId] = useState(null)
+  const [activating, setActivating] = useState(false)
 
   const fetchData = async () => {
     try {
@@ -38,6 +42,18 @@ function App() {
       } catch (err) {
         // Scenario fetch is optional, don't fail the whole fetch
         console.warn('Could not fetch scenario:', err)
+      }
+
+      // Fetch stored scenarios
+      try {
+        const storedResponse = await fetch(`${serverUrl}/api/scenarios`)
+        if (storedResponse.ok) {
+          const storedData = await storedResponse.json()
+          setStoredScenarios(storedData)
+        }
+      } catch (err) {
+        // Stored scenarios fetch is optional
+        console.warn('Could not fetch stored scenarios:', err)
       }
     } catch (err) {
       setError(err.message)
@@ -75,16 +91,16 @@ function App() {
       }
 
       const result = await response.json()
-      setScenario(result)
+      // Upload now returns stored scenario info, refresh to get current scenario info
       setUploadStatus({ 
         type: 'success', 
-        message: `Scenario "${result.name}" uploaded successfully with ${result.rules} rules!` 
+        message: `Scenario "${result.name}" uploaded successfully! (ID: ${result.id})` 
       })
       
       // Clear the file input
       event.target.value = ''
       
-      // Refresh data to show updated logs
+      // Refresh data to show updated logs and scenarios list
       setTimeout(() => {
         fetchData()
       }, 500)
@@ -93,6 +109,50 @@ function App() {
       console.error('Error uploading scenario:', err)
     } finally {
       setUploading(false)
+    }
+  }
+
+  const handleViewYAML = async (scenarioId) => {
+    try {
+      const response = await fetch(`${serverUrl}/api/scenarios/${scenarioId}`)
+      if (!response.ok) {
+        throw new Error('Failed to fetch scenario YAML')
+      }
+      const data = await response.json()
+      setSelectedScenarioYAML(data)
+      setViewingScenarioId(scenarioId)
+    } catch (err) {
+      setError(err.message)
+      console.error('Error fetching scenario YAML:', err)
+    }
+  }
+
+  const handleActivateScenario = async (scenarioId) => {
+    setActivating(true)
+    try {
+      const response = await fetch(`${serverUrl}/api/scenarios/${scenarioId}/activate`, {
+        method: 'POST',
+      })
+      if (!response.ok) {
+        const errorText = await response.text()
+        throw new Error(errorText || 'Failed to activate scenario')
+      }
+      const result = await response.json()
+      setScenario(result)
+      setUploadStatus({ 
+        type: 'success', 
+        message: `Scenario "${result.name}" activated successfully!` 
+      })
+      
+      // Refresh data
+      setTimeout(() => {
+        fetchData()
+      }, 500)
+    } catch (err) {
+      setUploadStatus({ type: 'error', message: err.message })
+      console.error('Error activating scenario:', err)
+    } finally {
+      setActivating(false)
     }
   }
 
@@ -156,7 +216,7 @@ function App() {
             <div><strong>Rules:</strong> {scenario.rules}</div>
           </div>
         )}
-        <div>
+        <div style={{ marginBottom: '20px' }}>
           <label htmlFor="scenario-upload" style={{ display: 'block', marginBottom: '10px' }}>
             Upload YAML Scenario:
           </label>
@@ -181,6 +241,64 @@ function App() {
             </div>
           )}
         </div>
+
+        <div>
+          <h3>Available Scenarios ({storedScenarios.length})</h3>
+          {storedScenarios.length === 0 ? (
+            <p>No scenarios available. Upload a scenario to get started.</p>
+          ) : (
+            <div className="simulations-list">
+              {storedScenarios.map((stored) => (
+                <div key={stored.id} className="simulation-item">
+                  <div style={{ marginBottom: '8px' }}>
+                    <strong>{stored.name}</strong>
+                  </div>
+                  <div style={{ marginBottom: '8px', fontSize: '0.9em', color: '#666' }}>
+                    Created: {new Date(stored.created_at).toLocaleString()}
+                  </div>
+                  <div>
+                    <button
+                      onClick={() => handleViewYAML(stored.id)}
+                      style={{ marginRight: '5px', fontSize: '0.9em' }}
+                    >
+                      View YAML
+                    </button>
+                    <button
+                      onClick={() => handleActivateScenario(stored.id)}
+                      disabled={activating}
+                      style={{ fontSize: '0.9em', backgroundColor: '#28a745' }}
+                    >
+                      {activating ? 'Activating...' : 'Activate'}
+                    </button>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+
+        {selectedScenarioYAML && (
+          <div style={{ marginTop: '20px', padding: '15px', backgroundColor: '#f8f9fa', borderRadius: '4px', border: '1px solid #dee2e6' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '10px' }}>
+              <h3>Scenario YAML: {selectedScenarioYAML.name}</h3>
+              <button onClick={() => { setSelectedScenarioYAML(null); setViewingScenarioId(null); }}>Close</button>
+            </div>
+            <pre style={{ 
+              background: '#1e1e1e', 
+              color: '#d4d4d4', 
+              padding: '15px', 
+              borderRadius: '4px', 
+              overflow: 'auto', 
+              maxHeight: '500px',
+              fontFamily: "'Courier New', monospace",
+              fontSize: '12px',
+              whiteSpace: 'pre-wrap',
+              wordWrap: 'break-word'
+            }}>
+              {selectedScenarioYAML.yaml_content}
+            </pre>
+          </div>
+        )}
       </div>
 
       <div className="section">
