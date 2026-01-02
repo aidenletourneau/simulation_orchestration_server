@@ -38,6 +38,9 @@ COPY --from=builder /build/simulation_server .
 # Copy scenarios directory
 COPY --chown=appuser:appgroup scenarios/ ./scenarios/
 
+# Create data directory for database with proper permissions
+RUN mkdir -p /app/data && chown -R appuser:appgroup /app/data
+
 # Switch to non-root user
 USER appuser
 

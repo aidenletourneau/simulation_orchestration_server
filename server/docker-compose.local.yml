@@ -1,0 +1,29 @@
+version: '3.8'
+
+# Alternative configuration that mounts a local directory for database
+# Use this if you want the database file to persist on your local filesystem
+
+services:
+  server:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: simulation-server
+    ports:
+      - "3000:3000"
+    environment:
+      - PORT=3000
+      - SCENARIO_FILE=scenarios/example.yaml
+      - DATABASE_URL=/app/data/scenarios.db
+    volumes:
+      # Mount scenarios directory (read-only for safety)
+      - ./scenarios:/app/scenarios:ro
+      # Mount data directory for database (creates if doesn't exist)
+      - ./data:/app/data
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:3000/"]
+      interval: 30s
+      timeout: 3s
+      retries: 3
+      start_period: 5s
