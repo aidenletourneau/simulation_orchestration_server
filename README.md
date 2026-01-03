@@ -1,14 +1,14 @@
-# Cloud-Native Multi-Simulation Orchestration Server (Go)
+# Multi-Simulation Orchestration Server
 
 ## 1. Overview
 
-Department of Energy (DoE) training exercises frequently rely on multiple independent simulation systems, such as cyber ranges, VR/AR emergency response environments, and physical facility or sensor simulations. While standards like HLA, DIS, and TENA enable data-level interoperability, they do not provide a simple, reusable mechanism for **scenario-level orchestration**—i.e., defining how events in one simulation should trigger coordinated actions in others.
+Department of Energy (DoE) training exercises frequently rely on multiple independent simulation systems, such as cyber ranges, VR/AR emergency response environments, and physical facility or sensor simulations. While standards like HLA, DIS, and TENA enable data-level interoperability, they do not provide a simple, reusable mechanism for scenario-level orchestration, defining how events in one simulation should trigger coordinated actions in others.
 
-This project proposes a **cloud-hosted orchestration server written in Go** that acts as a central “scenario brain.” The server ingests real-time events from connected simulations, evaluates them against a declarative YAML scenario file, and dispatches commands to other simulations accordingly. The system is designed to be cloud-native, extensible, and security-aware, making it suitable as a prototype for future DoE multi-domain training environments.
+This project proposes a cloud-hosted orchestration server written in Go that acts as a central “scenario brain.” The server ingests real-time events from connected simulations, evaluates them against a declarative YAML scenario file, and dispatches commands to other simulations accordingly. The system is designed to be cloud-native, extensible, and security-aware, making it suitable as a prototype for future DoE multi-domain training environments.
 
 ---
 
-## 2. Goals and Non-Goals
+## 2. Goals
 
 ### Goals
 - Enable **scenario-level orchestration** across heterogeneous simulations.
@@ -16,18 +16,11 @@ This project proposes a **cloud-hosted orchestration server written in Go** that
 - Support **pluggable simulation clients** (cyber, VR, physical/sensor).
 - Be **cloud deployable** using Docker and AWS.
 
-### Non-Goals
-- Full integration with HLA/DIS/TENA (out of scope for Winterim).
-- Hard real-time or frame-level time synchronization across simulations.
-- Handling classified or Controlled Unclassified Information (CUI).
-- Achieving production-level ATO or full DoE cyber compliance.
-
----
 
 ## 3. High-Level Architecture
 
 ### Core Components
-1. **Ingress API / Client Gateway**
+1. **Client Gateway**
    - Accepts real-time connections from simulation clients.
    - Supports WebSockets (recommended for demo) or gRPC streaming.
 
@@ -62,13 +55,17 @@ This project proposes a **cloud-hosted orchestration server written in Go** that
 - Lightweight, idiomatic Go router.
 - Well-suited for REST APIs and middleware-based services.
 
-### Configuration Management: `spf13/viper`
-- Supports YAML, environment variables, and 12-factor app principles.
+### Configuration Management: `joho/godotenv`
+- Supports environment variable loading from `.env` files.
 - Useful for switching between local/dev/cloud configurations.
 
 ### YAML Parsing: `gopkg.in/yaml.v3`
 - Canonical YAML parsing library for Go.
 - Supports strict decoding and schema validation.
+
+### Database: `modernc.org/sqlite` and `lib/pq`
+- SQLite for local development and lightweight deployments.
+- PostgreSQL support via `lib/pq` for production environments.
 
 ### Real-Time Communication
 - **WebSockets** (primary choice): easy integration with Unity and Godot clients.
@@ -77,7 +74,6 @@ This project proposes a **cloud-hosted orchestration server written in Go** that
 ### Deployment
 - Docker for packaging.
 - AWS EC2 or ECS for hosting.
-- Reverse proxy (e.g., Traefik) for TLS termination and routing.
 
 ---
 
@@ -230,13 +226,43 @@ type Action struct {
 
 ```
 server/
-├── main.go                    # Entry point
-├── websocket.go               # WebSocket handler
-├── registry.go                # Simulation registry (simple map)
-├── scenario.go                # YAML loader and rule matcher
-├── models.go                  # Data structures
+├── cmd/
+│   └── server/
+│       └── main.go            # Entry point
+├── internal/
+│   ├── api/
+│   │   └── handlers.go        # HTTP API handlers
+│   ├── logging/
+│   │   └── log_store.go       # Audit log storage
+│   ├── models/
+│   │   └── models.go          # Data structures
+│   ├── queue/
+│   │   └── event_queue.go     # Event bus implementation
+│   ├── registry/
+│   │   └── registry.go        # Simulation registry
+│   ├── saga/
+│   │   └── saga.go           # Saga pattern for multi-step actions
+│   ├── scenario/
+│   │   └── scenario.go       # YAML loader and rule matcher
+│   ├── store/
+│   │   └── scenario_store.go # Scenario persistence
+│   └── websocket/
+│       ├── websocket.go       # WebSocket handler
+│       └── event_handler.go   # Event processing
 ├── scenarios/
-│   └── example.yaml           # Example scenario file
+│   ├── disaster_response.yaml
+│   ├── example.yaml
+│   ├── industrial_automation.yaml
+│   ├── security_monitoring.yaml
+│   ├── sensor_network.yaml
+│   ├── smart_building.yaml
+│   └── training_exercise.yaml
+├── docs/
+│   ├── README.md
+│   └── YAML_SCENARIO_LANGUAGE.md
+├── docker-compose.yml
+├── docker-compose.local.yml
+├── Dockerfile
 ├── go.mod
 └── go.sum
 ```
@@ -255,6 +281,7 @@ server/
 **Dependencies**:
 - `github.com/go-chi/chi/v5`
 - `github.com/gorilla/websocket`
+- `github.com/joho/godotenv`
 
 #### Step 2: Simulation Registry
 **Goal**: Track connected simulations
@@ -277,6 +304,8 @@ server/
 
 **Dependencies**:
 - `gopkg.in/yaml.v3`
+- `modernc.org/sqlite` (for scenario persistence)
+- `github.com/lib/pq` (for PostgreSQL support)
 
 #### Step 4: Event Processing
 **Goal**: Match events to rules and send commands
@@ -301,36 +330,8 @@ server/
 3. Add basic error handling (missing simulation, invalid messages)
 4. Add simple logging (fmt.Println or basic logger)
 
-### 6.3 Key Simplifications
 
-**What we're NOT doing**:
-- ❌ Complex authentication/security
-- ❌ Performance optimization
-- ❌ Retry logic or error recovery
-- ❌ Audit logging system
-- ❌ REST API endpoints
-- ❌ Worker pools or queues
-- ❌ Condition evaluation (just match event_type and source)
-- ❌ Phase/state management (all rules active at once)
-
-**What we ARE doing**:
-- ✅ Simple WebSocket connections
-- ✅ Basic registry (map)
-- ✅ YAML-based routing rules
-- ✅ Event → Rule matching → Command forwarding
-- ✅ Basic error handling (log and continue)
-
-### 6.4 Minimal Dependencies
-
-**Required**:
-- `github.com/go-chi/chi/v5` - HTTP router
-- `github.com/gorilla/websocket` - WebSocket support
-- `gopkg.in/yaml.v3` - YAML parsing
-
-**Optional**:
-- Basic logging (can use standard `log` package)
-
-### 6.5 Example Scenario YAML
+### 6.3 Example Scenario YAML
 
 ```yaml
 scenario:
@@ -361,17 +362,3 @@ scenario:
           params:
             status: "sensor_active"
 ```
-
-### 6.6 Success Criteria
-
-**MVP is working when**:
-- ✅ Server accepts WebSocket connections
-- ✅ Simulations can register with an ID
-- ✅ Simulation A can send an event
-- ✅ Server matches event to YAML rule
-- ✅ Server sends command to Simulation B
-- ✅ Simulation B receives the command
-
-**That's it!** Simple event routing based on YAML rules.
-
----
